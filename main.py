@@ -1,74 +1,20 @@
 import discord
 from discord.ext import commands
+from discord.ext import menus
 from coolname import generate_slug
 import docker
 import socket
-import uuid
+import mcstatus
 
 bot = commands.Bot(command_prefix='/')
 client = docker.from_env()
-instances = []
-reactions = ['1️⃣', '2️⃣', '3️⃣', '4️⃣']
-confirmreactions =['✅', '❌']
 
 def get_free_tcp_port():
-    tcp = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+    tcp = socket.socket(socket.AF_INET, socket.SOCK_STREAM)    
     tcp.bind(('', 0))
     addr, port = tcp.getsockname()
     tcp.close()
     return port
-
-def get_instance(owner):
-    for i in instances:
-        if i.owneruuid == owner:
-            return i
-    return False
-
-class Instance:
-    def __init__(self, owner, jartype, version):
-
-        self.owneruuid = owner
-        self.jartype = jartype
-        self.version = version
-        self.coolname = None
-        self.container = None
-        self.running = None
-        self.port = None
-        self.ip = "IP HERE"
-
-    def initialize(self):
-        print(f"{self.owneruuid} CREATED.")
-        self.port = get_free_tcp_port()
-        portlist={"25565/tcp":self.port}
-        environment={"MEMORY": "2048M", "TYPE": self.jartype, "VERSION": self.version, "EULA": "TRUE"}
-        self.coolname = generate_slug(3)
-        self.container = client.containers.run('itzg/minecraft-server', command="--noconsole", ports=portlist, name=self.owneruuid, 
-            detach=True, environment=environment)
-
-    def decommission(self):
-        print(f"{self.owneruuid} DELETED.")
-        self.container.remove(force=True)
-
-    def start(self):
-        print(f"{self.owneruuid} STARTED.")
-        self.container.start()
-
-    def stop(self):
-        print(f"{self.owneruuid} STOPPED.")
-        self.container.stop()
-
-    def get_info(self):
-        print(f"{self.owneruuid} QUERIED.")
-
-    def get_container(self):
-        print(f"{self.owneruuid} GOT CONTAINER.")
-        self.container = client.get(self.owneruuid)
-
-def create_instance(owner, jartype, version):
-    instance = Instance(owner, "PAPER", version)
-    instances.append(instance)
-    instance.initialize()
-    return instance
 
 @bot.event
 async def on_ready():
@@ -76,117 +22,177 @@ async def on_ready():
     game = discord.Game("/minecraft")
     await bot.change_presence(status=discord.Status.online, activity=game)
 
-@bot.command()
-async def instancecreator(ctx):
-    if get_instance(ctx.author.id) != False:
-        return
+class InstanceHandler:
 
-    embed = discord.Embed(title = ":tools: New Instance.", description = f"Greetings, {ctx.author.name}. It appears you do not have an existing instance. Would you like to create one?\n1️⃣ 1.16.5\n2️⃣ 1.12.2\n:x: Cancel", color=0x595959)
-    message = await ctx.send(embed=embed)
-    for i in range(2):
-        await message.add_reaction(reactions[i])
-    await message.add_reaction('❌')
-    @bot.event
-    async def on_reaction_add(reaction, user):
-        if user.id == ctx.message.author.id:
-            if reaction.emoji == "1️⃣":
-                #await message.delete()
-                instance = create_instance(ctx.author.id, "PAPER", "1.16.5")
-                await initmessage(ctx, instance)
-            if reaction.emoji == "2️⃣":
-                #await message.delete()
-                instance = create_instance(ctx.author.id, "PAPER", "1.12.2")
-                await initmessage(ctx, instance)
+    def create_container(self, owneruuid, version):
+        print("CREATING")
+        print(owneruuid, version)
+        port = get_free_tcp_port()
+        print(port)
+        dockerlabels = {"port": str(port), "version": str(version)}
+        portlist={"25565/tcp":port}
+        environment={"MEMORY": "2048M", "TYPE": "PAPER", "VERSION": version, "EULA": "TRUE"}
+        container = client.containers.run('itzg/minecraft-server', command="--noconsole", ports=portlist, name=owneruuid, 
+            detach=True, environment=environment, labels=dockerlabels)
 
-            if reaction.emoji == "❌":
-                await message.delete()
+    def get_container(self, owneruuid):
+        print("GETTING")
+        try:
+            container = client.containers.get(str(owneruuid))
+        except docker.errors.NotFound:
+            return False
+            print("FAILED TO GET CONTAINER")
+        else:
+            print("RETURNING CONTAINER")
+            print(container.id)
+            return(container)
 
-@bot.command()
-async def initmessage(ctx, instance):
-    embed = discord.Embed(title = f":tools: Instance {instance.coolname} created. Join at {instance.ip}:{instance.port}", description = "Please allow 30 seconds for startup, this is only running on an E3-1220 V3 :(")
-    message = await ctx.send(embed=embed)
+    def stop_container(self, owneruuid):
+        print("STOPPING")
+        container = self.get_container(owneruuid)
+        container.stop()
+        print("STOPPED")
+    
+    def start_container(self, owneruuid):
+        print("STARTING")
+        container = self.get_container(owneruuid)
+        container.start()
+        print("STARTED")
 
-@bot.command()
-async def waitmessage(ctx, instance):
-    embed = discord.Embed(title = f":tools: Please allow 30 seconds for this operation, this is only running on an E3-1220 V3 :(")
-    message = await ctx.send(embed=embed)
+    def delete_container(self, owneruuid):
+        print("DELETING")
+        container = self.get_container(owneruuid)
+        container.stop()
+        container.remove()
+        print("DELETED")
 
-@bot.command()
-async def confirm(ctx, module, instance, text):
-    embed = discord.Embed(title = f":tools: {text}", color=0x595959)
-    message = await ctx.send(embed=embed)
+    def query_container(self, owneruuid):
+        print("QUERYING")
+        container = self.get_container(owneruuid)
+        labels = container.labels
+        port = labels.get("port")
+        status = container.status
+        full_stats = container.stats(stream=False)
+        if status != "running":
+            return {
+                "status": status,
+                "port": port,
+            }
+        minecraft_status = mcstatus.MinecraftServer("localhost", int(port)).status()
+        return {
+            "port": port,
+            "status": status,
+            "version": labels.get("version"),
+            "players": {"online": minecraft_status.players.online,
+                      "max": minecraft_status.players.max},
+            "description": minecraft_status.description,
+            "ram_usage": full_stats["memory_stats"]["usage"],
+        }
 
-    for emoji in confirmreactions:
-        await message.add_reaction(emoji)
+class Confirm(menus.Menu):
+    def __init__(self, msg):
+        super().__init__(timeout=30.0, delete_message_after=True)
+        self.msg = msg
+        self.result = None
 
-    @bot.event
-    async def on_reaction_add(reaction, user):
-        if user.id == ctx.message.author.id:
-            if reaction.emoji == "✅":
-                #await message.delete()
-                await module(ctx, instance)
-            if reaction.emoji == "❌":
-                await message.delete()
-                
-@bot.event
-async def startinstance(ctx, instance):
-    await waitmessage(ctx, instance)
-    print("Starting instance")
-    instance.start()
+    async def send_initial_message(self, ctx, channel):
+        embed = discord.Embed(title = f":tools: {self.msg}", color=0x595959)
+        return await channel.send(embed=embed)
 
-@bot.event
-async def stopinstance(ctx, instance):
-    await waitmessage(ctx, instance)
-    print("Stopping")
-    instance.stop()
+    @menus.button('✅')
+    async def do_confirm(self, payload):
+        await waitmessage(self.ctx)
+        self.result = True
+        self.stop()
 
-@bot.event
-async def queryinstance(ctx, instance):
-    print("Querying instance")
-    pass
+    @menus.button('❌')
+    async def do_deny(self, payload):
+        self.result = False
+        self.stop()
 
-@bot.event
-async def deleteinstance(ctx, instance):
-    await waitmessage(ctx, instance)
-    instance.decommission()
-    instances.remove(instance)
-    del instance
+    async def prompt(self, ctx):
+        await self.start(ctx, wait=True)
+        return self.result
+
+class NewInstance(menus.Menu):
+    async def send_initial_message(self, ctx, channel):
+        embed = discord.Embed(title = ":tools: New Instance.", description = f"Greetings, {ctx.author.name}. It appears you do not have an existing instance. Would you like to create one?\n1️⃣ 1.16.5\n2️⃣ 1.12.2\n⏹️ Cancel", color=0x595959)
+        return await channel.send(embed=embed)
+
+    @menus.button('1️⃣')
+    async def on_keycap_digit_one(self, payload):
+        instancehandler.create_container(self.ctx.author.id, "1.16.5")
+        await self.message.delete()
+
+    @menus.button('2️⃣')
+    async def on_keycap_digit_two(self, payload):
+        instancehandler.create_container(self.ctx.author.id, "1.12.2")
+        await self.message.delete()
+
+    @menus.button('⏹️')
+    async def on_stop(self, payload):
+        await self.message.delete()
+
+class MainMenu(menus.Menu):
+    async def send_initial_message(self, ctx, channel):
+        jsonData = instancehandler.query_container(self.ctx.author.id)
+        port = jsonData["port"]
+        if jsonData["status"] == "running":
+            status = jsonData["status"]
+            ramusage = round(jsonData["ram_usage"]/1000000)
+            description = jsonData["description"]["text"]
+            players = jsonData["players"]["online"]
+            version = jsonData["version"]
+        else:
+            status = "STOPPED"
+            ramusage = "FAILED"
+            description = "FAILED"
+            players = "FAILED"
+        embed = discord.Embed(title = ":tools: Toolbox", description = f"Greetings, {ctx.author.name}.\n ```STATUS: {status}\nIP: 192.168.1.25:{port}\nPLAYERS: {players}\nVERSION: {version}\nDESC: {description}\nRAM: {ramusage}MB```\nWhat would you like to do?\n:arrow_forward: Start server \n:stop_button: Stop server \n"+
+	        ":heart_decoration:Check status of server \n:wastebasket:Delete server", color=0x595959) 
+        return await channel.send(embed=embed)
+
+    @menus.button('▶️')
+    async def on_play_button(self, payload):
+        confirm = await Confirm('Start instance?').prompt(self.ctx)
+        if confirm:
+            instancehandler.start_container(self.ctx.author.id)
+            await self.message.delete()
+
+    @menus.button('⏹️')
+    async def on_stop_button(self, payload):
+        confirm = await Confirm('Stop instance?').prompt(self.ctx)
+        if confirm:
+            instancehandler.stop_container(self.ctx.author.id)
+            await self.message.delete()
+
+    @menus.button('💟')
+    async def on_query(self, payload):
+        confirm = await Confirm('Query instance?').prompt(self.ctx)
+        if confirm:
+            print(instancehandler.query_container(self.ctx.author.id))
+            await self.message.delete()
+
+    @menus.button('🗑️')
+    async def on_trash_can(self, payload):
+        confirm = await Confirm('Delete instance?').prompt(self.ctx)
+        if confirm:
+            instancehandler.delete_container(self.ctx.author.id)
+            await self.message.delete()
 
 @bot.command()
 async def minecraft(ctx):
+    if instancehandler.get_container(ctx.author.id) == False:
+        m = NewInstance()
+        await m.start(ctx)
+    else:
+        m = MainMenu()
+        await m.start(ctx)
 
-    instance = get_instance(ctx.author.id)
-    if instance == False:
-        await ctx.invoke(instancecreator)
-        return
-
-    embed = discord.Embed(title = ":tools: Toolbox", description = f"Greetings, {ctx.author.name}.\n Your instances IP is {instance.ip}:{instance.port}\nWhat would you like to do?\n:arrow_forward: Start server \n:stop_button: Stop server \n"+
-	":heart_decoration:Check status of server \n:wastebasket:Delete server", color=0x595959)
-    message = await ctx.send(embed=embed)
-    reactions = ['▶️', '⏹️', '💟', '🗑️']
-
-    for emoji in reactions:
-        await message.add_reaction(emoji)
-
-    @bot.event
-    async def on_reaction_add(reaction, user):
-        if user.id == ctx.message.author.id:
-            if reaction.emoji == "▶️":
-                await confirm(ctx, startinstance, instance, "Are you sure you want to start your instance?")
-                #await message.delete()
-            if reaction.emoji == "⏹️":
-                await confirm(ctx, stopinstance, instance, "Are you sure you want to stop your instance?")
-                #await message.delete()
-            if reaction.emoji == "💟":
-                await confirm(ctx, queryinstance, instance, "Are you sure you want to query your instance?")
-                #await message.delete()
-            if reaction.emoji == "🗑️":
-                await confirm(ctx, deleteinstance, instance, "Are you sure you want to delete your instance? \n\n:warning:THIS IS IRRESVERSABLE.:warning:")
-                #await message.delete()
-            
 @bot.command()
-async def instancelist(ctx):
-    for i in instances:
-        await ctx.send(i.coolname)
+async def waitmessage(ctx):
+    embed = discord.Embed(title = f":tools: Please allow 30 seconds for this operation, this is only running on an E3-1220 V3 :(")
+    await ctx.send(embed=embed)
 
+instancehandler = InstanceHandler()
 bot.run('', bot=True)
