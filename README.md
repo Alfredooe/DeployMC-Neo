@@ -1,5 +1,10 @@
 Lightweight discord bot for managing containerized minecraft servers.
-Requires https://github.com/Rapptz/discord-ext-menus and MCSTATUS
+
+REQUIREMENTS
+https://github.com/Rapptz/discord-ext-menus
+https://pypi.org/project/coolname/
+https://github.com/Dinnerbone/mcstatus
+and docker of course.
 
 WIP
 Command injection
