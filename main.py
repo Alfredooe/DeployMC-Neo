@@ -78,7 +78,13 @@ class InstanceHandler:
                 "status": status,
                 "port": port,
             }
-        minecraft_status = mcstatus.MinecraftServer("localhost", int(port)).status()
+        try:
+            minecraft_status = mcstatus.MinecraftServer("localhost", int(port)).status()
+        except:
+            return {
+                "status": "starting",
+                "port": port,
+            }
         return {
             "port": port,
             "status": status,
@@ -139,17 +145,23 @@ class MainMenu(menus.Menu):
         port = jsonData["port"]
         if jsonData["status"] == "running":
             status = jsonData["status"]
-            ramusage = round(jsonData["ram_usage"]/1000000)
+            ramusage = str(round(jsonData["ram_usage"]/1000000))+"MB / 2048MB"
             description = jsonData["description"]["text"]
             players = jsonData["players"]["online"]
             version = jsonData["version"]
         else:
             status = "STOPPED"
-            ramusage = "FAILED"
-            description = "FAILED"
-            players = "FAILED"
-        embed = discord.Embed(title = ":tools: Toolbox", description = f"Greetings, {ctx.author.name}.\n ```STATUS: {status}\nIP: 192.168.1.25:{port}\nPLAYERS: {players}\nVERSION: {version}\nDESC: {description}\nRAM: {ramusage}MB```\nWhat would you like to do?\n:arrow_forward: Start server \n:stop_button: Stop server \n"+
-	        ":heart_decoration:Check status of server \n:wastebasket:Delete server", color=0x595959) 
+            ramusage = "N/A"
+            description = "N/A"
+            players = "N/A"
+            version = "N/A"
+
+        embed=discord.Embed(title="DeployMC Toolbox")
+        embed.add_field(name="Server Status", value=f"```STATUS: {status}\nIP: 192.168.1.25:{port}\nPLAYERS: {players}\nVERSION: {version}\nDESC: {description}\nRAM: {ramusage}```", inline=True)
+        embed.add_field(name="Commands", value="What would you like to do?\n:arrow_forward: Start server \n:stop_button: Stop server \n"+
+	        ":heart_decoration:Check status of server \n:wastebasket:Delete server", inline=True)
+        embed.set_footer(text="Currently in alpha! If you've got concerns or feedback please contact Alfredo#0974")
+
         return await channel.send(embed=embed)
 
     @menus.button('▶️')
