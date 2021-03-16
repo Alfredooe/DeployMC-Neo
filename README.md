@@ -1,11 +1,12 @@
-Lightweight discord bot for managing containerized minecraft servers.
+<h1>Lightweight discord bot for managing containerized minecraft servers.<h1>
 
-REQUIREMENTS
-https://github.com/Rapptz/discord-ext-menus
-https://pypi.org/project/coolname/
-https://github.com/Dinnerbone/mcstatus
-and docker of course.
+<h2>REQUIREMENTS<h2>
+<li>https://github.com/Rapptz/discord-ext-menus<li>
+<li>https://pypi.org/project/coolname/<li>
+<li>https://github.com/Dinnerbone/mcstatus<li>
+<li>docker of course.<li>
 
-WIP
-Command injection
-Multi instance handling
+<h2>WIP<h2>
+<li>Command injection<li>
+<li>Multi instance handling<li>
+<li>Potentially a credit / billing system.<li>
