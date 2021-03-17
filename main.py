@@ -30,7 +30,8 @@ class InstanceHandler:
         print(owneruuid, username, version, port)
         dockerlabels = {"port": str(port), "version": str(version)}
         portlist={"25565/tcp":port}
-        environment={"MEMORY": "2048M", "TYPE": "PAPER", "VERSION": version, "EULA": "TRUE", "OPS": username}
+        mc_name = f"{username}'s Instance. Powered by DeployMC!"
+        environment={"MEMORY": "2048M", "TYPE": "PAPER", "VERSION": version, "EULA": "TRUE", "OPS": username, "MOTD": mc_name}
         container = client.containers.run('itzg/minecraft-server', command="--noconsole", ports=portlist, name=owneruuid, 
             detach=True, environment=environment, labels=dockerlabels)
 
