@@ -8,7 +8,7 @@ import mcstatus
 
 bot = commands.Bot(command_prefix='/')
 client = docker.from_env()
-
+global ayylmao
 def get_free_tcp_port():
     tcp = socket.socket(socket.AF_INET, socket.SOCK_STREAM)    
     tcp.bind(('', 0))
@@ -24,14 +24,13 @@ async def on_ready():
 
 class InstanceHandler:
 
-    def create_container(self, owneruuid, version):
+    def create_container(self, owneruuid, version, username):
         print("CREATING")
-        print(owneruuid, version)
         port = get_free_tcp_port()
-        print(port)
+        print(owneruuid, username, version, port)
         dockerlabels = {"port": str(port), "version": str(version)}
         portlist={"25565/tcp":port}
-        environment={"MEMORY": "2048M", "TYPE": "PAPER", "VERSION": version, "EULA": "TRUE"}
+        environment={"MEMORY": "2048M", "TYPE": "PAPER", "VERSION": version, "EULA": "TRUE", "OPS": username}
         container = client.containers.run('itzg/minecraft-server', command="--noconsole", ports=portlist, name=owneruuid, 
             detach=True, environment=environment, labels=dockerlabels)
 
@@ -40,8 +39,8 @@ class InstanceHandler:
         try:
             container = client.containers.get(str(owneruuid))
         except docker.errors.NotFound:
-            return False
             print("FAILED TO GET CONTAINER")
+            return False
         else:
             print("RETURNING CONTAINER")
             print(container.id)
@@ -122,12 +121,18 @@ class Confirm(menus.Menu):
 
 class NewInstance(menus.Menu):
     async def send_initial_message(self, ctx, channel):
-        embed = discord.Embed(title = ":tools: New Instance.", description = f"Greetings, {ctx.author.name}. It appears you do not have an existing instance. Would you like to create one?\n1️⃣ 1.16.5\n2️⃣ 1.12.2\n⏹️ Cancel", color=0x595959)
+        def check(reply):
+            return reply.channel == channel and reply.author == ctx.author
+        embed = discord.Embed(title = ":tools: New Instance.", description = f"Greetings, What is your **minecraft username?** I require this for giving you OP.", color=0x595959)
+        await channel.send(embed=embed)
+        returned = await bot.wait_for('message', check=check)
+        self.mc_username = returned.content
+        embed = discord.Embed(title = ":tools: New Instance.", description = f"Greetings, {self.mc_username}. It appears you do not have an existing instance. Would you like to create one?\n1️⃣ 1.16.5\n2️⃣ 1.12.2\n⏹️ Cancel", color=0x595959)
         return await channel.send(embed=embed)
 
     @menus.button('1️⃣')
     async def on_keycap_digit_one(self, payload):
-        instancehandler.create_container(self.ctx.author.id, "1.16.5")
+        instancehandler.create_container(self.ctx.author.id, "1.16.5", self.mc_username)
         await self.message.delete()
 
     @menus.button('2️⃣')
