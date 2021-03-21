@@ -5,15 +5,20 @@ from coolname import generate_slug
 import docker
 import socket
 import mcstatus
+import logging
+import time
+import threading
 
 bot = commands.Bot(command_prefix='/')
 client = docker.from_env()
-global ayylmao
+logging.basicConfig(filename='example.log', level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s', datefmt='%m/%d/%Y %I:%M:%S')
+
 def get_free_tcp_port():
     tcp = socket.socket(socket.AF_INET, socket.SOCK_STREAM)    
     tcp.bind(('', 0))
     addr, port = tcp.getsockname()
     tcp.close()
+    logging.info(f"PORT {port} PICKED")
     return port
 
 @bot.event
@@ -22,53 +27,77 @@ async def on_ready():
     game = discord.Game("/minecraft")
     await bot.change_presence(status=discord.Status.online, activity=game)
 
+def watch_dog():
+    running_instances = {}
+    logging.info("WATCHDOG INITIALIZED")
+    while True:
+        time.sleep(60)
+        containers = client.containers.list()
+        for i in containers:
+            container_name = i.name
+
+            try:
+                query_info = instancehandler.query_container(i)
+                players = query_info["players"]["online"]
+            except:
+                break
+
+            if container_name not in running_instances:
+                running_instances[container_name] = 0
+
+            if players > 0:
+                running_instances[container_name] = 0
+
+            elif players == 0:
+                inactive_time = running_instances[container_name]
+                inactive_time += 1
+                running_instances[container_name] = inactive_time
+                if inactive_time > 15:
+                    instancehandler.stop_container(i)
+                    logging.info(f"INSTANCE {container_name} AUTO-STOP")
+                    running_instances[container_name] = 0
+        logging.info(f"RUNNING INSTANCES: {running_instances}")
+        
 class InstanceHandler:
 
     def create_container(self, owneruuid, version, username):
-        print("CREATING")
         port = get_free_tcp_port()
-        print(owneruuid, username, version, port)
         dockerlabels = {"port": str(port), "version": str(version)}
         portlist={"25565/tcp":port}
+        logging.info(f"UUID: {owneruuid} USERNAME: {username} CREATED A {version} INSTANCE")
         mc_name = f"{username}'s Instance. Powered by DeployMC!"
-        environment={"MEMORY": "2048M", "TYPE": "PAPER", "VERSION": version, "EULA": "TRUE", "OPS": username, "MOTD": mc_name}
+        environment={"MEMORY": "2048M", "TYPE": "PAPER", "VERSION": version, "EULA": "TRUE", "OPS": username, "MOTD": mc_name, "ENABLE_AUTOPAUSE": "TRUE", "AUTOPAUSE_TIMEOUT_EST": "60", "AUTOPAUSE_TIMEOUT_INIT": "60"}
         container = client.containers.run('itzg/minecraft-server', command="--noconsole", ports=portlist, name=owneruuid, 
             detach=True, environment=environment, labels=dockerlabels)
 
     def get_container(self, owneruuid):
-        print("GETTING")
+        logging.info(f"GETTING CONTAINER {owneruuid}")
         try:
             container = client.containers.get(str(owneruuid))
         except docker.errors.NotFound:
-            print("FAILED TO GET CONTAINER")
+            logging.info(f"FAILED TO GET CONTAINER {owneruuid}")
             return False
         else:
-            print("RETURNING CONTAINER")
-            print(container.id)
             return(container)
 
-    def stop_container(self, owneruuid):
-        print("STOPPING")
-        container = self.get_container(owneruuid)
+    def stop_container(self, container):
+        logging.info(f"STOPPING CONTAINER {container.name}")
         container.stop()
-        print("STOPPED")
+        logging.info(f"STOPPED CONTAINER {container.name}")
     
-    def start_container(self, owneruuid):
-        print("STARTING")
-        container = self.get_container(owneruuid)
+    def start_container(self, container):
+        logging.info(f"STARTING CONTAINER {container.name}")
         container.start()
-        print("STARTED")
+        logging.info(f"STARTED CONTAINER {container.name}")
 
-    def delete_container(self, owneruuid):
-        print("DELETING")
-        container = self.get_container(owneruuid)
+    def delete_container(self, container):
+        logging.warning(f"DELETING CONTAINER {container.name}")
         container.stop()
         container.remove()
-        print("DELETED")
+        logging.warning(f"DELETED CONTAINER {container.name}")
 
-    def query_container(self, owneruuid):
-        print("QUERYING")
-        container = self.get_container(owneruuid)
+    def query_container(self, container):
+        logging.info(f"QUERYING CONTAINER {container.name}")
         labels = container.labels
         port = labels.get("port")
         status = container.status
@@ -85,6 +114,7 @@ class InstanceHandler:
                 "status": "starting",
                 "port": port,
             }
+            logging.info(f"FAILED TO MCSTATUS {container.name}")
         return {
             "port": port,
             "status": status,
@@ -134,11 +164,13 @@ class NewInstance(menus.Menu):
     @menus.button('1️⃣')
     async def on_keycap_digit_one(self, payload):
         instancehandler.create_container(self.ctx.author.id, "1.16.5", self.mc_username)
+        await waitmessage(self.ctx)
         await self.message.delete()
-
+ 
     @menus.button('2️⃣')
     async def on_keycap_digit_two(self, payload):
         instancehandler.create_container(self.ctx.author.id, "1.12.2")
+        await waitmessage(self.ctx)
         await self.message.delete()
 
     @menus.button('⏹️')
@@ -147,7 +179,8 @@ class NewInstance(menus.Menu):
 
 class MainMenu(menus.Menu):
     async def send_initial_message(self, ctx, channel):
-        jsonData = instancehandler.query_container(self.ctx.author.id)
+        container = instancehandler.get_container(self.ctx.author.id)
+        jsonData = instancehandler.query_container(container)
         port = jsonData["port"]
         if jsonData["status"] == "running":
             status = jsonData["status"]
@@ -166,7 +199,7 @@ class MainMenu(menus.Menu):
         embed.add_field(name="Server Status", value=f"```STATUS: {status}\nIP: 192.168.1.25:{port}\nPLAYERS: {players}\nVERSION: {version}\nDESC: {description}\nRAM: {ramusage}```", inline=True)
         embed.add_field(name="Commands", value="What would you like to do?\n:arrow_forward: Start server \n:stop_button: Stop server \n"+
 	        ":heart_decoration:Check status of server \n:wastebasket:Delete server", inline=True)
-        embed.set_footer(text="Currently in alpha! If you've got concerns or feedback please contact Alfredo#0974")
+        embed.set_footer(text="Your instance will also stop after 15 minutes of inactivity.\nCurrently in alpha! Concerns or feedback? Please contact Alfredo#0974.")
 
         return await channel.send(embed=embed)
 
@@ -174,14 +207,16 @@ class MainMenu(menus.Menu):
     async def on_play_button(self, payload):
         confirm = await Confirm('Start instance?').prompt(self.ctx)
         if confirm:
-            instancehandler.start_container(self.ctx.author.id)
+            container = instancehandler.get_container(self.ctx.author.id)
+            instancehandler.start_container(container)
             await self.message.delete()
 
     @menus.button('⏹️')
     async def on_stop_button(self, payload):
         confirm = await Confirm('Stop instance?').prompt(self.ctx)
         if confirm:
-            instancehandler.stop_container(self.ctx.author.id)
+            container = instancehandler.get_container(self.ctx.author.id)
+            instancehandler.stop_container(container)
             await self.message.delete()
 
     @menus.button('💟')
@@ -195,7 +230,8 @@ class MainMenu(menus.Menu):
     async def on_trash_can(self, payload):
         confirm = await Confirm('Delete instance?').prompt(self.ctx)
         if confirm:
-            instancehandler.delete_container(self.ctx.author.id)
+            container = instancehandler.get_container(self.ctx.author.id)
+            instancehandler.delete_container(container)
             await self.message.delete()
 
 @bot.command()
@@ -213,4 +249,7 @@ async def waitmessage(ctx):
     await ctx.send(embed=embed)
 
 instancehandler = InstanceHandler()
+watchdog_thread = threading.Thread(target=watch_dog).start()
+
+logging.info("STARTED")
 bot.run('', bot=True)
