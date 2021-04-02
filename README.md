@@ -1,6 +1,6 @@
 <h1>Lightweight discord bot for managing containerized minecraft servers.</h1>
 <h2>PSA</h2>
-<p>I have *not* security tested this, use with caution.</p>
+<p>To date this hasn't been tested, purely WIP.</p>
 <h2>REQUIREMENTS</h2>
 <li>https://github.com/Rapptz/discord-ext-menus</li>
 <li>https://pypi.org/project/coolname/</li>
